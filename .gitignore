@@ -1,0 +1,8 @@
+# Compiled class files
+*.class
+
+# IDE files
+.idea/
+
+# Dependency directories
+target/
