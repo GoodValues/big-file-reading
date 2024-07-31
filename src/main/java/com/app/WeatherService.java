@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.to_date;
+import static org.apache.spark.sql.functions.year;
 
 
 @Service
@@ -33,12 +34,22 @@ public class WeatherService {
 
     public String calculateAvgTemperaturesForCity(final String city) {
         try {
-            createDataframeWithRawData();
             final List<AvgTempPerYear> yearlyTemperatures = createDataframeWithYearlyTemperatures(city);
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(yearlyTemperatures);
         } catch (final Exception e) {
             return "An error occurred while calculating average temperatures. Error message: " + e.getMessage();
         }
+    }
+
+    private List<AvgTempPerYear> createDataframeWithYearlyTemperatures(final String city) {
+        createDataframeWithRawData();
+        final Dataset<Row> averageTemperatures = spark.sql("SELECT year, round(avg(temperature), 1) as averageTemperature " +
+                "FROM " + DATAFRAME_VIEW_NAME + " " +
+                "WHERE upper(city) = '" + city.toUpperCase() + "'" +
+                "GROUP BY year " +
+                "ORDER BY year");
+
+        return averageTemperatures.as(Encoders.bean(AvgTempPerYear.class)).collectAsList();
     }
 
     private void createDataframeWithRawData() {
@@ -48,18 +59,10 @@ public class WeatherService {
                 .csv(FILE_DIR)
                 .toDF("city", "date", "temperature")
                 .withColumn("date", to_date(col("date"), DATE_FORMAT))
-                .repartition(col("date"));
+                .withColumn("year", year(col("date")))
+                .drop(col("date"))
+                .repartition(col("year"));
 
         df.createOrReplaceTempView(DATAFRAME_VIEW_NAME);
-    }
-
-    private List<AvgTempPerYear> createDataframeWithYearlyTemperatures(final String city) {
-        final Dataset<Row> averageTemperatures = spark.sql("SELECT year(date) as year, round(avg(temperature), 1) as averageTemperature " +
-                "FROM " + DATAFRAME_VIEW_NAME + " " +
-                "WHERE upper(city) = '" + city.toUpperCase() + "'" +
-                "GROUP BY year(date) " +
-                "ORDER BY year");
-
-        return averageTemperatures.as(Encoders.bean(AvgTempPerYear.class)).collectAsList();
     }
 }
